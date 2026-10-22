@@ -7,7 +7,7 @@
 
 ## 🌟 Overview
 
-**ShikshaShare** is a production-quality, community-based educational platform created for a college **Community Engagement Project (CEP)**. Designed to bridge the educational resource gap, ShikshaShare connects students, resource providers, donors, and community organizations (NGOs, NSS units, schools, orphanages, and educational foundations).
+**ShikshaShare** is a production-quality, community-based educational platform created for a college **Community Engagement Project (CEP)**. Designed to bridge the educational resource gap, ShikshaShare connects students, resource providers, community organizations (NGOs, NSS units, schools, orphanages, and educational foundations), and academic administrators.
 
 Rather than an e-commerce marketplace or SaaS product, ShikshaShare centers on **educational access, circular reuse, free donations, and mutual community support**.
 
@@ -32,34 +32,35 @@ The application is structured directly around real human intent:
 - **Actions**: Request Free Donations, Request to Buy affordable resources, Save to Wishlist, View Handover Locations.
 
 ### 2. 🏷️ Resource Provider
-- Lists educational equipment or textbooks for fellow students.
-- Easily toggles between **For Sale (Affordable Student Price)** and **100% Free / Donation**.
+- Lists educational equipment or textbooks with an explicit per-item choice:
+  1. **Sell** — enter the asking price.
+  2. **Donate for free** — set price to ₹0 and mark as a free donation.
+- Combined donor functionality: donate surplus materials, pledge to community partner drives, and track impact.
 - Tracks active listings, buyer requests, and completed handovers in a dedicated provider dashboard.
 
-### 3. 🎁 Resource Donor
-- Streamlined 4-step donation flow with zero friction.
-- Donates surplus materials generally to students or links donations directly to active **Community Partner Drives**.
-- Tracks total donations, community impact score, and pledge handover status.
-
-### 4. 🤝 Community Partner (NGOs, NSS College Units, Schools, Trusts)
+### 3. 🤝 Community Partner (NGOs, NSS College Units, Schools, Trusts)
 - Dedicated non-commercial dashboard tailored for community distribution.
 - **Workflow**: `POST REQUIREMENT` &rarr; `RECEIVE COMMUNITY PLEDGES` &rarr; `VERIFY` &rarr; `DISTRIBUTE TO BENEFICIARIES` &rarr; `MARK FULFILLED`.
 - Live visual progress meter on community drives (e.g., *"14 of 25 School Bags Received"*).
 
-### 5. ⚙️ System Administrator
+### 4. ⚙️ System Administrator
 - Discrete administrative portal accessible for CEP faculty and coordinators.
-- Resource moderation queue, verified partner approvals, and community impact reports.
+- Resource moderation queue, verified partner approvals, user role management, and community impact reports.
 
 ---
 
 ## 🚀 Running Locally
 
-ShikshaShare is built with standard, dependency-free HTML5, CSS3, and Vanilla JavaScript. It requires zero build tools, bundlers, or package managers.
+ShikshaShare is built with standard HTML5, CSS3, Vanilla JavaScript, and Node.js Express backend.
 
-Start a local server with Python:
+Start a local server with Node.js & Express:
 
 ```bash
-python -m http.server 3000
+# 1. Install dependencies
+npm install
+
+# 2. Run the server (serves frontend and exposes /api endpoints)
+npm start
 ```
 
 Open your browser and navigate to:
@@ -67,15 +68,14 @@ Open your browser and navigate to:
 http://localhost:3000
 ```
 
+Backend API endpoints are exposed under `/api` (e.g. `http://localhost:3000/api`).
+
 ---
 
-## 🧪 Testing & Quick Demo Profiles
+## 🔐 Authentication & Roles
 
-Click **Log In** in the top navigation to access 1-click demo profiles:
-- **Student**: Swarup Patil (College, Computer Engg Sem 3, VJTI)
-- **Community Partner**: Aditya Kale (NSS Unit - VJTI Youth Wing)
-- **Donor**: Priya Iyer (Alumni Donor)
-- **Resource Provider**: Aarav Sharma (Student Seller)
-- **System Admin**: Prof. M. K. Deshmukh (CEP Faculty Lead)
-
-All platform interactions (pledges, requests, listings, profile updates) persist in your browser's `localStorage`.
+Users register and authenticate with their individual credentials through the standard authentication flow. The four supported roles across the system are:
+- **Student**
+- **Resource Provider**
+- **Community Partner**
+- **System Administrator**

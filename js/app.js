@@ -45,79 +45,99 @@ document.addEventListener('DOMContentLoaded', () => {
     condition: 'all'
   };
 
-  // --- Initialize App ---
-  initPopulateDropdowns();
-  initNavigation();
-  initAuth();
-  initFilterControls();
-  initModals();
-  initDonationForm();
-
-  // Initial renders
-  renderAuthUI();
-  renderHome();
-  renderResources();
-  renderCommunity();
-  renderDashboard();
-
-  // Global event listeners for state sync
-  window.addEventListener('shikshashare:authChanged', () => {
-    renderAuthUI();
-    renderDashboard();
-    renderHome();
-    renderResources();
-  });
-
-  window.addEventListener('shikshashare:resourceAdded', () => {
-    renderHome();
-    renderResources();
-    renderDashboard();
-    showToast('Resource listed successfully on ShikshaShare!', 'success');
-  });
-
-  window.addEventListener('shikshashare:requirementAdded', () => {
-    renderHome();
-    renderCommunity();
-    renderDashboard();
-    showToast('Community requirement published successfully!', 'success');
-  });
-
-  window.addEventListener('shikshashare:requirementPledged', (e) => {
-    renderHome();
-    renderCommunity();
-    renderDashboard();
-    const qty = e.detail?.pledge?.quantityPledged || e.detail?.request?.quantityPledged || 1;
-    const org = e.detail?.requirement?.organizationName || 'Community Partner';
-    showToast(`Thank you! Pledged ${qty} item(s) to ${org}.`, 'success');
-  });
-
-  window.addEventListener('shikshashare:distributionRecorded', () => {
-    renderCommunity();
-    renderDashboard();
-  });
-
-  window.addEventListener('shikshashare:requestAdded', () => {
-    renderDashboard();
-    showToast('Resource request sent to provider/donor!', 'success');
-  });
-
-  window.addEventListener('shikshashare:profileUpdated', () => {
-    renderDashboard();
-    renderResources();
-    showToast('Curriculum profile preferences updated!', 'success');
-  });
-
-  window.addEventListener('shikshashare:savedChanged', () => {
-    renderResources();
-    renderDashboard();
-  });
-
+  let providerPhotoCtrl = null;
 
   // =========================================================================
-  // 1. Navigation & Routing
+  // 1. Navigation & Role-Based Access Routing Configuration
   // =========================================================================
+  const ROLE_PERMISSIONS = {
+    guest: {
+      views: ['home', 'resources', 'community', 'donate', 'about'],
+      nav: ['navHome', 'navResources', 'navCommunity', 'navDonate', 'navAbout'],
+      mobileNav: ['mNavHome', 'mNavResources', 'mNavCommunity', 'mNavDonate'],
+      defaultDashboard: 'home'
+    },
+    student: {
+      views: ['home', 'resources', 'community', 'about', 'dashboard'],
+      nav: ['navHome', 'navResources', 'navCommunity', 'navAbout'],
+      mobileNav: ['mNavHome', 'mNavResources', 'mNavCommunity', 'mNavProfile'],
+      defaultDashboard: 'dashboard'
+    },
+    provider: {
+      views: ['home', 'resources', 'community', 'donate', 'about', 'dashboard'],
+      nav: ['navHome', 'navResources', 'navCommunity', 'navDonate', 'navAbout'],
+      mobileNav: ['mNavHome', 'mNavResources', 'mNavCommunity', 'mNavDonate', 'mNavProfile'],
+      defaultDashboard: 'dashboard'
+    },
+    community: {
+      views: ['home', 'community', 'about', 'dashboard'],
+      nav: ['navHome', 'navCommunity', 'navAbout'],
+      mobileNav: ['mNavHome', 'mNavCommunity', 'mNavProfile'],
+      defaultDashboard: 'dashboard'
+    },
+    admin: {
+      views: ['home', 'resources', 'community', 'donate', 'about', 'dashboard'],
+      nav: ['navHome', 'navResources', 'navCommunity', 'navDonate', 'navAbout'],
+      mobileNav: ['mNavHome', 'mNavResources', 'mNavCommunity', 'mNavDonate', 'mNavProfile'],
+      defaultDashboard: 'dashboard'
+    }
+  };
+
+
+  function updateNavigationForRole(role = 'guest') {
+    const permissions = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.guest;
+
+    // Desktop nav
+    navLinks.forEach(link => {
+      if (permissions.nav.includes(link.id)) {
+        link.style.display = '';
+      } else {
+        link.style.display = 'none';
+      }
+    });
+
+    // Mobile bottom nav
+    mobileNavItems.forEach(item => {
+      if (permissions.mobileNav.includes(item.id)) {
+        item.style.display = '';
+      } else {
+        item.style.display = 'none';
+      }
+    });
+  }
+
   function switchView(viewName) {
-    if (!views[viewName]) return;
+    const user = stateManager.getCurrentUser();
+    const role = user ? user.role : 'guest';
+    const permissions = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.guest;
+
+    if (!views[viewName]) {
+      viewName = 'home';
+    }
+
+    // Role-based access control check
+    if (!permissions.views.includes(viewName)) {
+      const roleLabel = user ? user.roleLabel : 'Guest';
+      const capName = viewName.charAt(0).toUpperCase() + viewName.slice(1);
+
+      if (!user && viewName === 'dashboard') {
+        showToast('Please sign in to access your ShikshaShare dashboard.', 'info');
+        openAuthModal('login');
+      } else {
+        showToast(`Access restricted: The ${capName} section is not accessible for ${roleLabel} accounts. Redirected to your dashboard.`, 'info');
+      }
+
+      const redirectView = user ? 'dashboard' : 'home';
+      if (viewName !== redirectView) {
+        return switchView(redirectView);
+      }
+      return;
+    }
+
+    // Keep URL hash in sync for direct navigation
+    if (window.location.hash.slice(1) !== viewName) {
+      history.pushState(null, '', `#${viewName}`);
+    }
 
     // Toggle active view container
     Object.keys(views).forEach(k => {
@@ -222,13 +242,7 @@ document.addEventListener('DOMContentLoaded', () => {
           openModal('authModal');
           return;
         }
-        if (user.role === 'provider' || user.role === 'student') {
-          openModal('providerAddListingModal');
-        } else if (user.role === 'donor') {
-          switchView('donate');
-        } else {
-          openModal('providerAddListingModal');
-        }
+        openModal('providerAddListingModal');
       });
     }
 
@@ -249,6 +263,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const communityPostReqBtn = document.getElementById('communityPostReqBtn');
     if (communityPostReqBtn) {
       communityPostReqBtn.addEventListener('click', () => {
+        const user = stateManager.getCurrentUser();
+        if (!user) {
+          showToast('Please sign in as a Community Partner (NGO / NSS) to post a drive.', 'info');
+          openModal('authModal');
+          return;
+        }
+        if (user.role !== 'community' && user.role !== 'admin') {
+          showToast(`Only verified Community Partners and Administrators can publish community drives. Your account is '${user.roleLabel}'.`, 'error');
+          return;
+        }
         openModal('postRequirementModal');
       });
     }
@@ -275,16 +299,37 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
-    // Footer Admin Portal link
+    // Footer Admin Portal link (strictly role-gated)
     const footerAdminPortalLink = document.getElementById('footerAdminPortalLink');
     if (footerAdminPortalLink) {
       footerAdminPortalLink.addEventListener('click', (e) => {
         e.preventDefault();
-        // Set to admin demo profile for instant access
-        stateManager.loginAsDemoUser('user-admin');
-        switchView('dashboard');
-        showToast('Entered Admin Console as System Administrator', 'info');
+        const user = stateManager.getCurrentUser();
+        if (user && user.role === 'admin') {
+          switchView('dashboard');
+          showToast('Welcome to the System Administration Console.', 'info');
+        } else if (user) {
+          showToast(`Access Denied: System Administrator privileges required. Your account is logged in as '${user.roleLabel}'.`, 'error');
+          switchView('dashboard');
+        } else {
+          showToast('Access Denied: Please sign in with an authorized Administrator account.', 'info');
+          openAuthModal('login');
+        }
       });
+    }
+
+    // Direct URL hash synchronization & back/forward button support
+    window.addEventListener('hashchange', () => {
+      const hash = window.location.hash.slice(1);
+      if (hash && views[hash]) {
+        switchView(hash);
+      }
+    });
+
+    // Handle initial URL hash on startup
+    const initialHash = window.location.hash.slice(1);
+    if (initialHash && views[initialHash]) {
+      switchView(initialHash);
     }
   }
 
@@ -298,8 +343,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const authTabRegister = document.getElementById('authTabRegister');
     const loginForm = document.getElementById('loginForm');
     const registerForm = document.getElementById('registerForm');
-    const regRole = document.getElementById('regRole');
-    const regOrgGroup = document.getElementById('regOrgGroup');
+    const authStatusMessage = document.getElementById('authStatusMessage');
+
+    function setAuthMessage(text, type = 'error') {
+      if (!authStatusMessage) return;
+      if (!text) {
+        authStatusMessage.style.display = 'none';
+        authStatusMessage.className = 'auth-message';
+        authStatusMessage.textContent = '';
+        return;
+      }
+      authStatusMessage.className = `auth-message ${type}`;
+      authStatusMessage.textContent = text;
+      authStatusMessage.style.display = 'block';
+    }
 
     // Header buttons
     const headerLoginBtn = document.getElementById('headerLoginBtn');
@@ -320,7 +377,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (headerSignOutBtn) {
       headerSignOutBtn.addEventListener('click', () => {
         stateManager.logout();
-        showToast('You have signed out.', 'info');
+        updateNavigationForRole('guest');
+        showToast('You have signed out securely.', 'info');
         switchView('home');
       });
     }
@@ -333,93 +391,270 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Auth Modal Tabs
-    authTabLogin.addEventListener('click', () => {
-      authTabLogin.classList.add('active');
-      authTabRegister.classList.remove('active');
-      loginForm.style.display = 'block';
-      registerForm.style.display = 'none';
-      document.getElementById('authModalTitle').textContent = 'Sign In to ShikshaShare';
-    });
-
-    authTabRegister.addEventListener('click', () => {
-      authTabRegister.classList.add('active');
-      authTabLogin.classList.remove('active');
-      loginForm.style.display = 'none';
-      registerForm.style.display = 'block';
-      document.getElementById('authModalTitle').textContent = 'Join ShikshaShare Community';
-    });
-
-    // Role selection in registration
-    regRole.addEventListener('change', (e) => {
-      if (e.target.value === 'community') {
-        regOrgGroup.style.display = 'block';
-      } else {
-        regOrgGroup.style.display = 'none';
-      }
-    });
-
-    // Demo user instant chips
-    document.querySelectorAll('.demo-user-chip').forEach(chip => {
-      chip.addEventListener('click', (e) => {
-        const demoId = chip.getAttribute('data-demo-id');
-        const user = stateManager.loginAsDemoUser(demoId);
-        closeModal('authModal');
-        if (user) {
-          showToast(`Switched account to: ${user.name} (${user.roleLabel})`, 'success');
-          switchView('dashboard');
-        }
+    if (authTabLogin && authTabRegister) {
+      authTabLogin.addEventListener('click', () => {
+        authTabLogin.classList.add('active');
+        authTabRegister.classList.remove('active');
+        if (loginForm) loginForm.style.display = 'block';
+        if (registerForm) registerForm.style.display = 'none';
+        document.getElementById('authModalTitle').textContent = 'Sign In to ShikshaShare';
+        setAuthMessage('');
       });
-    });
 
-    // Login Form Submit
-    if (loginForm) {
-      loginForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const emailInput = document.getElementById('loginEmail');
-        const email = emailInput ? emailInput.value.trim().toLowerCase() : '';
-        const found = DEMO_USERS.find(u => u.email.toLowerCase() === email || u.name.toLowerCase().includes(email));
-        let user;
-        if (found) {
-          user = stateManager.loginAsDemoUser(found.id);
-        } else {
-          // Default to student demo or active user
-          user = stateManager.loginAsDemoUser('user-student');
-        }
-        closeModal('authModal');
-        showToast(`Welcome back, ${user.name}!`, 'success');
-        switchView('dashboard');
+      authTabRegister.addEventListener('click', () => {
+        authTabRegister.classList.add('active');
+        authTabLogin.classList.remove('active');
+        if (loginForm) loginForm.style.display = 'none';
+        if (registerForm) registerForm.style.display = 'block';
+        document.getElementById('authModalTitle').textContent = 'Join ShikshaShare Community';
+        setAuthMessage('');
       });
     }
 
-    // Register Form Submit
-    registerForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const role = document.getElementById('regRole').value;
-      const name = document.getElementById('regName').value.trim();
-      const email = document.getElementById('regEmail').value.trim();
-      const org = document.getElementById('regOrg').value.trim();
-      const location = document.getElementById('regLocation').value.trim();
-
-      const newUser = stateManager.registerUser({
-        role,
-        name,
-        email,
-        organizationName: org,
-        location
+    // Password Show/Hide Toggle Buttons
+    document.querySelectorAll('.password-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const targetId = btn.getAttribute('data-toggle-target');
+        const input = document.getElementById(targetId);
+        if (!input) return;
+        const isPassword = input.type === 'password';
+        input.type = isPassword ? 'text' : 'password';
+        const eyeShow = btn.querySelector('.eye-show');
+        const eyeHide = btn.querySelector('.eye-hide');
+        if (eyeShow && eyeHide) {
+          eyeShow.style.display = isPassword ? 'none' : 'block';
+          eyeHide.style.display = isPassword ? 'block' : 'none';
+        }
       });
-
-      closeModal('authModal');
-      showToast(`Welcome to ShikshaShare, ${newUser.name}!`, 'success');
-      switchView('dashboard');
     });
+
+    // Forgot Password Link
+    const forgotPasswordLink = document.getElementById('forgotPasswordLink');
+    if (forgotPasswordLink) {
+      forgotPasswordLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        const identifier = document.getElementById('loginIdentifier')?.value.trim();
+        if (identifier) {
+          setAuthMessage(`Password recovery link has been dispatched to: ${identifier}`, 'info');
+          showToast(`Password reset link dispatched to ${identifier}`, 'info');
+        } else {
+          setAuthMessage('Please enter your Email ID or Mobile Number above to receive password reset instructions.', 'info');
+          document.getElementById('loginIdentifier')?.focus();
+        }
+      });
+    }
+
+    // Login Form Submit (Direct backend authentication with role dispatch)
+    if (loginForm) {
+      loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        setAuthMessage('');
+        const identifier = document.getElementById('loginIdentifier')?.value.trim() || '';
+        const password = document.getElementById('loginPassword')?.value || '';
+
+        if (!identifier || !password) {
+          setAuthMessage('Please provide both your Email ID / Mobile Number and password.', 'error');
+          return;
+        }
+
+        const result = await stateManager.login(identifier, password);
+        if (result.success && result.user) {
+          closeModal('authModal');
+          loginForm.reset();
+          updateNavigationForRole(result.user.role);
+          showToast(`Welcome back, ${result.user.name}! (${result.user.roleLabel})`, 'success');
+          // Automatically route to user's assigned role dashboard
+          switchView('dashboard');
+        } else {
+          setAuthMessage(result.error || 'Authentication failed. Please verify credentials and try again.', 'error');
+        }
+      });
+    }
+
+
+    // Register Form Submit (Role validation and dynamic role assignment)
+    if (registerForm) {
+      registerForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        setAuthMessage('');
+        const name = document.getElementById('regName')?.value.trim() || '';
+        const email = document.getElementById('regEmail')?.value.trim() || '';
+        const mobile = document.getElementById('regMobile')?.value.trim() || '';
+        const role = document.getElementById('regRole')?.value || '';
+        const password = document.getElementById('regPassword')?.value || '';
+        const confirmPassword = document.getElementById('regConfirmPassword')?.value || '';
+
+        if (!name || !email || !mobile || !password || !confirmPassword) {
+          setAuthMessage('Please fill in all required registration fields.', 'error');
+          return;
+        }
+
+        if (!role) {
+          setAuthMessage('Please select your role from the dropdown (Student, Resource Provider, or Community Partner).', 'error');
+          return;
+        }
+
+        if (role === 'admin') {
+          setAuthMessage('System Administrator accounts cannot be created via public registration.', 'error');
+          return;
+        }
+
+        if (password.length < 6) {
+          setAuthMessage('Password must be at least 6 characters long.', 'error');
+          return;
+        }
+
+        if (password !== confirmPassword) {
+          setAuthMessage('Passwords do not match. Please verify and re-enter.', 'error');
+          return;
+        }
+
+        const result = await stateManager.register({
+          name,
+          email,
+          mobile,
+          password,
+          role
+        });
+
+        if (result.success && result.user) {
+          closeModal('authModal');
+          registerForm.reset();
+          updateNavigationForRole(result.user.role);
+          showToast(`Account registered successfully as ${result.user.roleLabel}! Welcome to ShikshaShare, ${result.user.name}!`, 'success');
+          // Open dashboard for user's assigned role
+          switchView('dashboard');
+        } else {
+          setAuthMessage(result.error || 'Registration failed. Please try again.', 'error');
+        }
+      });
+    }
   }
 
   function openAuthModal(mode = 'login') {
+    const statusMsg = document.getElementById('authStatusMessage');
+    if (statusMsg) {
+      statusMsg.style.display = 'none';
+      statusMsg.textContent = '';
+      statusMsg.className = 'auth-message';
+    }
     openModal('authModal');
     if (mode === 'register') {
-      document.getElementById('authTabRegister').click();
+      const regTab = document.getElementById('authTabRegister');
+      if (regTab) regTab.click();
     } else {
-      document.getElementById('authTabLogin').click();
+      const loginTab = document.getElementById('authTabLogin');
+      if (loginTab) loginTab.click();
+    }
+  }
+
+  function initHeaderNotifications() {
+    const notifBtn = document.getElementById('headerNotifBtn');
+    const notifDropdown = document.getElementById('headerNotifDropdown');
+    const notifBadge = document.getElementById('headerNotifBadge');
+    const notifUnreadTag = document.getElementById('notifUnreadTag');
+    const notifList = document.getElementById('headerNotifList');
+    const markAllBtn = document.getElementById('notifMarkAllReadBtn');
+    const notifWrap = document.getElementById('headerNotifWrap');
+
+    function renderNotifications(data) {
+      const notifications = Array.isArray(data?.notifications) ? data.notifications : stateManager.getNotifications();
+      const unreadCount = data?.unreadCount !== undefined ? data.unreadCount : notifications.filter(n => !n.read).length;
+
+      if (notifBadge) {
+        if (unreadCount > 0) {
+          notifBadge.style.display = 'flex';
+          notifBadge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+        } else {
+          notifBadge.style.display = 'none';
+        }
+      }
+
+      if (notifUnreadTag) {
+        notifUnreadTag.textContent = `${unreadCount} new`;
+      }
+
+      if (notifList) {
+        if (!notifications || notifications.length === 0) {
+          notifList.innerHTML = '<div class="notif-empty-state">No notifications yet</div>';
+          return;
+        }
+
+        notifList.innerHTML = notifications.map(n => {
+          const isUnread = !n.read;
+          const timeStr = n.timestamp ? new Date(n.timestamp).toLocaleDateString(undefined, {
+            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+          }) : '';
+
+          return `
+            <div class="notif-item ${isUnread ? 'unread' : ''}" data-notif-id="${n.id}">
+              <div class="notif-icon-bubble">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+                  <line x1="3" y1="6" x2="21" y2="6"></line>
+                  <path d="M16 10a4 4 0 0 1-8 0"></path>
+                </svg>
+              </div>
+              <div class="notif-content">
+                <div class="notif-title">${escapeHTML(n.resourceTitle || 'Resource Item')}</div>
+                <div class="notif-message">${escapeHTML(n.message || `Purchase request for ₹${n.price || 0}`)}</div>
+                <div class="notif-meta">
+                  <span>${timeStr}</span>
+                  ${n.price ? `<strong style="color: var(--color-primary);">₹${n.price}</strong>` : ''}
+                </div>
+              </div>
+              ${isUnread ? '<div class="notif-unread-dot" title="Unread notification"></div>' : ''}
+            </div>
+          `;
+        }).join('');
+
+        notifList.querySelectorAll('.notif-item').forEach(item => {
+          item.addEventListener('click', async () => {
+            const notifId = item.getAttribute('data-notif-id');
+            if (notifId) {
+              await stateManager.markNotificationAsRead(notifId);
+              item.classList.remove('unread');
+              const dot = item.querySelector('.notif-unread-dot');
+              if (dot) dot.remove();
+            }
+          });
+        });
+      }
+    }
+
+    if (notifBtn && notifDropdown) {
+      notifBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isVisible = notifDropdown.style.display !== 'none';
+        notifDropdown.style.display = isVisible ? 'none' : 'block';
+        if (!isVisible) {
+          stateManager.fetchNotifications().then(renderNotifications);
+        }
+      });
+
+      document.addEventListener('click', (e) => {
+        if (notifWrap && !notifWrap.contains(e.target)) {
+          notifDropdown.style.display = 'none';
+        }
+      });
+    }
+
+    if (markAllBtn) {
+      markAllBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await stateManager.markAllNotificationsAsRead();
+        const notifs = stateManager.getNotifications();
+        renderNotifications({ unreadCount: 0, notifications: notifs });
+      });
+    }
+
+    window.addEventListener('shikshashare:notificationsUpdated', (e) => {
+      renderNotifications(e.detail);
+    });
+
+    const user = stateManager.getCurrentUser();
+    if (user) {
+      stateManager.fetchNotifications().then(renderNotifications);
     }
   }
 
@@ -435,12 +670,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const nameEl = document.getElementById('headerUserName');
         if (nameEl) nameEl.textContent = user.name;
         const avatarEl = document.getElementById('userAvatarPill');
-        if (avatarEl) avatarEl.textContent = user.avatar || user.name.substring(0, 2).toUpperCase();
+        if (avatarEl) avatarEl.textContent = getInitials(user.name);
+        stateManager.fetchNotifications();
       } else {
         authLoggedOut.style.display = 'flex';
         authLoggedIn.style.display = 'none';
+        const badge = document.getElementById('headerNotifBadge');
+        if (badge) badge.style.display = 'none';
+        const dropdown = document.getElementById('headerNotifDropdown');
+        if (dropdown) dropdown.style.display = 'none';
       }
     }
+
+    // Synchronize navigation visibility with active user role
+    updateNavigationForRole(user ? user.role : 'guest');
   }
 
 
@@ -733,16 +976,33 @@ document.addEventListener('DOMContentLoaded', () => {
     const cat = CATEGORIES.find(c => c.id === res.category);
     const catName = cat ? cat.name : 'Educational Resource';
 
+    // Strictly use actual uploaded photos; no random stock substitution
+    const photoList = Array.isArray(res.images) && res.images.length > 0
+      ? res.images
+      : (res.image ? [res.image] : []);
+    const mainPhoto = photoList[0] || 'assets/logo.png';
+    const hasMultiplePhotos = photoList.length > 1;
+
     return `
       <div class="resource-card" data-res-id="${res.id}">
         <div class="resource-image-wrap">
-          <img src="${res.image}" alt="${escapeHTML(res.title)}" loading="lazy">
+          <img src="${mainPhoto}" alt="${escapeHTML(res.title)}" loading="lazy">
           <div class="resource-pill-overlay">
             ${isFree
               ? '<span class="badge badge-free">100% Free / Donated</span>'
               : `<span class="badge badge-price">For Sale • ₹${res.price}</span>`
             }
           </div>
+          ${hasMultiplePhotos ? `
+            <div class="resource-photo-count-pill" title="${photoList.length} photos available">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
+              <span>${photoList.length} photos</span>
+            </div>
+          ` : ''}
           <button class="resource-save-btn ${isSaved ? 'saved' : ''}" data-save-id="${res.id}" title="${isSaved ? 'Remove from Saved' : 'Save Resource'}">
             <svg viewBox="0 0 24 24" fill="${isSaved ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" width="16" height="16">
               <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
@@ -855,8 +1115,18 @@ document.addEventListener('DOMContentLoaded', () => {
             <span>Focus: ${escapeHTML(p.location)}</span>
             <span><strong>${p.studentsBenefited}+</strong> Assisted</span>
           </div>
+          <button class="btn btn-outline btn-sm btn-contact-partner" data-partner-name="${escapeHTML(p.name)}" style="margin-top: 12px; width: 100%;">
+            Contact Partner
+          </button>
         </div>
       `).join('');
+
+      partnersGrid.querySelectorAll('.btn-contact-partner').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const name = btn.getAttribute('data-partner-name');
+          openContactPartnerModal(name);
+        });
+      });
     }
   }
 
@@ -949,35 +1219,86 @@ document.addEventListener('DOMContentLoaded', () => {
 
     modalResTitle.textContent = res.title;
 
+    // Strictly use actual uploaded photos of this resource
+    const photoList = Array.isArray(res.images) && res.images.length > 0
+      ? res.images
+      : (res.image ? [res.image] : ['assets/logo.png']);
+    const hasMultiple = photoList.length > 1;
+
     modalResBody.innerHTML = `
-      <div style="display: flex; gap: 20px; flex-direction: column;">
-        <div style="width: 100%; height: 220px; border-radius: var(--radius-md); overflow: hidden; background: #f1f5f9;">
-          <img src="${res.image}" alt="${escapeHTML(res.title)}" style="width: 100%; height: 100%; object-fit: cover;">
+      <div class="product-detail-layout">
+        <!-- Amazon/Flipkart Style Photo Gallery -->
+        <div class="product-gallery">
+          <div class="gallery-main-wrap">
+            <img id="detailMainPhoto" class="gallery-main-img" src="${photoList[0]}" alt="${escapeHTML(res.title)}">
+            ${hasMultiple ? `<span id="detailPhotoIndicator" class="gallery-photo-indicator">Photo 1 of ${photoList.length}</span>` : ''}
+          </div>
+
+          ${hasMultiple ? `
+            <div class="gallery-thumbnails-strip" id="detailThumbnailsStrip" role="tablist" aria-label="Resource photo thumbnails">
+              ${photoList.map((photo, idx) => `
+                <button type="button" class="gallery-thumb-btn ${idx === 0 ? 'active' : ''}" data-photo-idx="${idx}" aria-label="View photo ${idx + 1} of ${photoList.length}">
+                  <img src="${photo}" alt="Thumbnail ${idx + 1}">
+                </button>
+              `).join('')}
+            </div>
+          ` : ''}
         </div>
 
+        <!-- Product Information & Specifications -->
         <div>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
             ${isFree
               ? '<span class="badge badge-free" style="font-size: 0.85rem; padding: 4px 10px;">100% Free / Donated</span>'
               : `<span class="badge badge-price" style="font-size: 0.85rem; padding: 4px 10px;">For Sale • ₹${res.price}</span>`
             }
-            <span style="font-size: 0.82rem; color: var(--text-muted);">Added on ${res.dateAdded}</span>
+            <span style="font-size: 0.82rem; color: var(--text-muted);">Added on ${res.dateAdded || 'Recently'}</span>
           </div>
 
           <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; color: var(--text-heading);">${escapeHTML(res.title)}</h2>
-          <p style="color: var(--text-body); line-height: 1.6; margin-bottom: 16px;">${escapeHTML(res.description)}</p>
+          <p style="color: var(--text-body); line-height: 1.6; margin-bottom: 16px;">${escapeHTML(res.description || 'Verified actual educational resource listing on ShikshaShare.')}</p>
 
-          <div style="background-color: var(--bg-surface-subtle); padding: 16px; border-radius: var(--radius-md); border: 1px solid var(--border-color); display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.85rem;">
+          <div style="background-color: var(--bg-surface-subtle); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border-color); display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.84rem;">
             <div><strong>Education Level:</strong> ${formatEduLevel(res.educationLevel)}</div>
-            <div><strong>Condition:</strong> ${escapeHTML(res.condition)}</div>
+            <div><strong>Condition:</strong> ${escapeHTML(res.condition || 'Good')}</div>
             ${res.branch ? `<div><strong>Branch:</strong> ${escapeHTML(res.branch)}</div>` : ''}
             ${res.semester ? `<div><strong>Semester:</strong> ${escapeHTML(res.semester)}</div>` : ''}
-            <div><strong>Provider / Donor:</strong> ${escapeHTML(res.providerName)}</div>
+            <div><strong>Resource Provider:</strong> ${escapeHTML(res.providerName)}</div>
             <div><strong>Pickup Location:</strong> ${escapeHTML(res.location)}</div>
           </div>
         </div>
       </div>
     `;
+
+    // Interactive thumbnail switching (Amazon / Flipkart behavior)
+    if (hasMultiple) {
+      const mainImg = document.getElementById('detailMainPhoto');
+      const indicator = document.getElementById('detailPhotoIndicator');
+      const thumbBtns = modalResBody.querySelectorAll('.gallery-thumb-btn');
+
+      const switchPhoto = (idx) => {
+        if (!photoList[idx]) return;
+        mainImg.style.opacity = '0.4';
+        setTimeout(() => {
+          mainImg.src = photoList[idx];
+          mainImg.style.opacity = '1';
+        }, 50);
+
+        if (indicator) {
+          indicator.textContent = `Photo ${idx + 1} of ${photoList.length}`;
+        }
+
+        thumbBtns.forEach((btn, bIdx) => {
+          btn.classList.toggle('active', bIdx === idx);
+        });
+      };
+
+      thumbBtns.forEach((btn) => {
+        const idx = parseInt(btn.getAttribute('data-photo-idx'), 10);
+        btn.addEventListener('click', () => switchPhoto(idx));
+        btn.addEventListener('mouseenter', () => switchPhoto(idx));
+      });
+    }
 
     modalResFooter.innerHTML = `
       <button class="btn btn-ghost btn-sm" data-close-modal="resourceDetailModal">Close</button>
@@ -1059,9 +1380,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const donateAnotherBtn = document.getElementById('donateAnotherBtn');
     const viewDonationInListBtn = document.getElementById('viewDonationInListBtn');
 
+    const donatePhotoCtrl = createPhotoUploadController({
+      dropzoneEl: document.getElementById('donatePhotoDropzone'),
+      fileInputEl: document.getElementById('donatePhotosInput'),
+      previewGridEl: document.getElementById('donatePhotoPreviewGrid'),
+      errorEl: document.getElementById('donatePhotoError'),
+      maxPhotos: 6
+    });
+
     if (donateForm) {
-      donateForm.addEventListener('submit', (e) => {
+      donateForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+
+        // 1. Mandatory Photo Check
+        const photoCheck = donatePhotoCtrl.validate();
+        if (!photoCheck.valid) {
+          donatePhotoCtrl.showError(photoCheck.error);
+          const dropzone = document.getElementById('donatePhotoDropzone');
+          if (dropzone) dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          showToast(photoCheck.error, 'error');
+          return;
+        }
 
         const category = document.getElementById('donateCategory').value;
         const title = document.getElementById('donateTitle').value.trim();
@@ -1072,23 +1411,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const location = document.getElementById('donateLocation').value.trim();
         const linkedNeedId = document.getElementById('donateLinkedNeed').value;
 
-        // If linked to a community need, also record pledge
-        if (linkedNeedId) {
-          stateManager.pledgeToRequirement(linkedNeedId, quantity, `Donated: ${title}`);
-        }
+        const uploadedPhotos = donatePhotoCtrl.getPhotos();
 
-        // Add resource to listing as 100% free
-        stateManager.addResource({
+        await stateManager.submitDonation({
           title,
           category,
           educationLevel,
           condition,
           description,
-          type: 'free',
-          price: 0,
+          quantity,
           location,
-          image: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=600&q=80'
+          linkedNeedId,
+          image: uploadedPhotos[0],
+          images: uploadedPhotos
         });
+
+        donatePhotoCtrl.clear();
 
         // Show thank you message
         donateForm.style.display = 'none';
@@ -1098,6 +1436,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (donateAnotherBtn) {
       donateAnotherBtn.addEventListener('click', () => {
+        donatePhotoCtrl.clear();
         donateForm.reset();
         donateForm.style.display = 'block';
         donateThankYouBox.style.display = 'none';
@@ -1122,7 +1461,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const role = user ? user.role : 'student';
 
     // Header info
-    document.getElementById('dashAvatar').textContent = user ? user.avatar : 'SP';
+    document.getElementById('dashAvatar').textContent = user ? getInitials(user.name) : 'SP';
     document.getElementById('dashGreeting').textContent = user ? `Welcome, ${user.name}` : 'Welcome back';
     document.getElementById('dashRoleBadge').textContent = user ? user.roleLabel : 'Student';
     document.getElementById('dashSubtitle').textContent = user?.institution || user?.location || 'ShikshaShare Academic Community';
@@ -1135,10 +1474,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (role === 'student') {
       renderStudentDashboard(actionWrap);
-    } else if (role === 'provider') {
+    } else if (role === 'provider' || role === 'donor') {
       renderProviderDashboard(actionWrap);
-    } else if (role === 'donor') {
-      renderDonorDashboard(actionWrap);
     } else if (role === 'community') {
       renderCommunityPartnerDashboard(actionWrap);
     } else if (role === 'admin') {
@@ -1155,7 +1492,8 @@ document.addEventListener('DOMContentLoaded', () => {
     actionWrap.innerHTML = `
       <button class="btn btn-outline btn-sm" id="dashPersonalizeBtn">Edit Curriculum Profile</button>
     `;
-    document.getElementById('dashPersonalizeBtn').addEventListener('click', openPersonalizeModal);
+    const dashPersonalizeBtn = document.getElementById('dashPersonalizeBtn');
+    if (dashPersonalizeBtn) dashPersonalizeBtn.addEventListener('click', openPersonalizeModal);
 
     const profile = stateManager.getStudentProfile();
     const curriculumDisplay = document.getElementById('studentCurriculumDisplay');
@@ -1167,7 +1505,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const recGrid = document.getElementById('studentRecommendedGrid');
     if (recGrid) {
       const allResources = stateManager.getResources();
-      // Match by level & branch or sem
       let matching = allResources.filter(r =>
         r.educationLevel === profile.level &&
         (!profile.branch || r.branch === profile.branch || r.stream === profile.stream)
@@ -1196,7 +1533,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Student requests table
     const tableBody = document.getElementById('studentRequestsTableBody');
     if (tableBody) {
-      const requests = stateManager.getUserRequests();
+      const user = stateManager.getCurrentUser();
+      const allRequests = stateManager.getUserRequests();
+      const requests = user
+        ? allRequests.filter(r => !r.studentId || r.studentId === user.id || r.studentName === user.name)
+        : allRequests;
+
       if (requests.length === 0) {
         tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No active requests or claims yet. Browse resources to claim or purchase.</td></tr>';
       } else {
@@ -1210,6 +1552,28 @@ document.addEventListener('DOMContentLoaded', () => {
             <td style="font-size: 0.8rem; color: var(--text-muted);">${escapeHTML(req.note || '')}</td>
           </tr>
         `).join('');
+      }
+    }
+
+    // Saved Resources (Wishlist) for student
+    const savedGrid = document.getElementById('studentSavedGrid');
+    if (savedGrid) {
+      const savedIds = stateManager.getSavedItems();
+      const allResources = stateManager.getResources();
+      const savedResources = allResources.filter(r => savedIds.includes(r.id));
+
+      if (savedResources.length === 0) {
+        savedGrid.innerHTML = `
+          <div style="grid-column: 1 / -1; text-align: center; padding: 32px 16px; background: #ffffff; border: 1px dashed var(--border-color); border-radius: 12px;">
+            <p style="color: var(--text-muted); margin-bottom: 12px; font-size: 0.95rem;">You haven't bookmarked any resources yet.</p>
+            <button class="btn btn-outline btn-sm" id="studentBrowseToSaveBtn">Browse Resources to Bookmark</button>
+          </div>
+        `;
+        const browseBtn = document.getElementById('studentBrowseToSaveBtn');
+        if (browseBtn) browseBtn.addEventListener('click', () => switchView('resources'));
+      } else {
+        savedGrid.innerHTML = savedResources.map(r => createResourceCardHTML(r)).join('');
+        attachResourceCardEvents(savedGrid);
       }
     }
 
@@ -1238,30 +1602,169 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // 2. Provider Dashboard
+  // 2. Resource Provider Dashboard
   function renderProviderDashboard(actionWrap) {
     const panel = document.getElementById('dashContentProvider');
     if (!panel) return;
     panel.style.display = 'block';
 
     actionWrap.innerHTML = `
-      <button class="btn btn-primary btn-sm" id="dashAddListingBtn">+ List Resource for Sale</button>
+      <button class="btn btn-primary btn-sm" id="dashAddListingBtn">+ Add New Resource</button>
+      <button class="btn btn-accent btn-sm" id="dashDonateBtn" style="margin-left: 8px;">+ Donate to Community</button>
     `;
     const dashAddListingBtn = document.getElementById('dashAddListingBtn');
     if (dashAddListingBtn) dashAddListingBtn.addEventListener('click', () => openModal('providerAddListingModal'));
+    const dashDonateBtn = document.getElementById('dashDonateBtn');
+    if (dashDonateBtn) dashDonateBtn.addEventListener('click', () => switchView('donate'));
     const providerAddListingBtn = document.getElementById('providerAddListingBtn');
     if (providerAddListingBtn) providerAddListingBtn.addEventListener('click', () => openModal('providerAddListingModal'));
 
-    // Provider's active listings
+    // Provider's active listings - Strictly user's own listings only
     const user = stateManager.getCurrentUser();
     const allResources = stateManager.getResources();
-    const myListings = allResources.filter(r => r.providerRole === 'Resource Provider' || r.providerRole === 'Student / Provider');
+    const myListings = user ? allResources.filter(r => r.providerId === user.id) : [];
 
-    document.getElementById('providerListingsCount').textContent = myListings.length;
+    const countEl = document.getElementById('providerListingsCount');
+    if (countEl) countEl.textContent = myListings.length;
+
     const grid = document.getElementById('providerListingsGrid');
     if (grid) {
-      grid.innerHTML = myListings.map(r => createResourceCardHTML(r)).join('');
-      attachResourceCardEvents(grid);
+      if (myListings.length === 0) {
+        grid.innerHTML = `
+          <div style="grid-column: 1 / -1; text-align: center; padding: 36px 16px; background: #ffffff; border: 1px dashed var(--border-color); border-radius: 12px;">
+            <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 12px;">You have no active resource listings yet.</p>
+            <button class="btn btn-primary btn-sm" id="providerEmptyAddBtn">+ Add Your First Listing</button>
+          </div>
+        `;
+        const emptyAddBtn = document.getElementById('providerEmptyAddBtn');
+        if (emptyAddBtn) emptyAddBtn.addEventListener('click', () => openModal('providerAddListingModal'));
+      } else {
+        grid.innerHTML = myListings.map(r => {
+          const photoList = Array.isArray(r.images) && r.images.length > 0
+            ? r.images
+            : (r.image ? [r.image] : ['assets/logo.png']);
+          const mainImg = photoList[0];
+          const hasMultiple = photoList.length > 1;
+
+          return `
+          <div class="resource-card" data-resource-id="${r.id}">
+            <div class="resource-img-wrap" style="position: relative;">
+              <img src="${mainImg}" alt="${escapeHTML(r.title)}" loading="lazy">
+              <span class="resource-type-pill ${r.type === 'free' ? 'pill-free' : 'pill-price'}">
+                ${r.type === 'free' ? 'Free' : `₹${r.price}`}
+              </span>
+              ${hasMultiple ? `
+                <span class="resource-photo-count-pill" style="bottom: 6px; right: 6px; font-size: 0.68rem; padding: 2px 6px;">
+                  📷 ${photoList.length} photos
+                </span>
+              ` : ''}
+            </div>
+            <div class="resource-content">
+              <div class="resource-header-row">
+                <span class="badge ${r.availability && r.availability.includes('Available') ? 'badge-verified' : 'badge-partner'}">${escapeHTML(r.availability || 'Available')}</span>
+                <span style="font-size: 0.78rem; color: var(--text-muted);">${r.dateAdded || ''}</span>
+              </div>
+              <h3 class="resource-title" style="margin-top: 8px;">${escapeHTML(r.title)}</h3>
+              <p class="resource-desc">${escapeHTML(r.description || '')}</p>
+              <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 14px;">
+                <strong>Condition:</strong> ${escapeHTML(r.condition || 'Good')} • <strong>Location:</strong> ${escapeHTML(r.location || 'Campus')}
+              </div>
+              <div style="display: flex; gap: 8px; margin-top: auto;">
+                <button class="btn btn-outline btn-sm btn-edit-listing" data-edit-id="${r.id}" style="flex: 1;">Edit Listing</button>
+                <button class="btn btn-outline btn-sm btn-delete-listing" data-delete-id="${r.id}" style="color: #dc2626; border-color: #fca5a5;">Remove</button>
+              </div>
+            </div>
+          </div>
+        `;
+        }).join('');
+
+        // Attach Delete listing events
+        grid.querySelectorAll('.btn-delete-listing').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const id = btn.getAttribute('data-delete-id');
+            if (confirm('Are you sure you want to remove this resource listing from ShikshaShare?')) {
+              try {
+                stateManager.deleteResource(id);
+                showToast('Resource listing removed successfully.', 'success');
+                renderProviderDashboard(actionWrap);
+              } catch (err) {
+                showToast(err.message, 'error');
+              }
+            }
+          });
+        });
+
+        // Attach Edit listing events
+        grid.querySelectorAll('.btn-edit-listing').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const id = btn.getAttribute('data-edit-id');
+            const target = stateManager.getResourceById(id);
+            if (!target) return;
+
+            const newTitle = prompt('Edit Resource Title:', target.title);
+            if (newTitle === null) return;
+            const newPrice = target.type === 'free' ? 0 : prompt('Edit Price (₹):', target.price);
+            if (newPrice === null) return;
+            const newLocation = prompt('Edit Pickup Location:', target.location);
+            if (newLocation === null) return;
+
+            try {
+              stateManager.updateResource(id, {
+                title: newTitle.trim() || target.title,
+                price: Number(newPrice) || 0,
+                location: newLocation.trim() || target.location
+              });
+              showToast('Resource listing updated successfully.', 'success');
+              renderProviderDashboard(actionWrap);
+            } catch (err) {
+              showToast(err.message, 'error');
+            }
+          });
+        });
+      }
+    }
+
+    // Provider Enquiries and Purchase Requests Table
+    const inqTable = document.getElementById('providerInquiriesTableBody');
+    if (inqTable) {
+      const userRequests = stateManager.getUserRequests();
+      const myInquiries = user
+        ? userRequests.filter(r => r.providerId === user.id)
+        : [];
+
+      const inqCountEl = document.getElementById('providerInquiriesCount');
+      if (inqCountEl) inqCountEl.textContent = myInquiries.length;
+
+      if (myInquiries.length === 0) {
+        inqTable.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No student enquiries or purchase requests received yet for your listings.</td></tr>';
+      } else {
+        inqTable.innerHTML = myInquiries.map(req => `
+          <tr>
+            <td><strong>${escapeHTML(req.resourceTitle || 'Resource Item')}</strong></td>
+            <td>${escapeHTML(req.studentName || 'Student Requester')}</td>
+            <td><span class="badge ${req.type === 'free_claim' ? 'badge-free' : 'badge-price'}">${req.type === 'free_claim' ? 'Free Claim' : 'Purchase Offer'}</span></td>
+            <td><span class="badge badge-partner" id="req-status-${req.id}">${escapeHTML(req.status)}</span></td>
+            <td>${req.date}</td>
+            <td>
+              <button class="btn btn-outline btn-sm btn-accept-req" data-req-id="${req.id}" style="padding: 4px 8px; font-size: 0.76rem;">Accept &amp; Coordinate</button>
+            </td>
+          </tr>
+        `).join('');
+
+        inqTable.querySelectorAll('.btn-accept-req').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const reqId = btn.getAttribute('data-req-id');
+            const targetReq = stateManager.updateRequestStatus(reqId, 'Handover Scheduled - Contact Shared');
+            if (targetReq) {
+              const statusEl = document.getElementById(`req-status-${reqId}`);
+              if (statusEl) statusEl.textContent = targetReq.status;
+              showToast('Student offer accepted! Contact details shared for campus collection.', 'success');
+            }
+          });
+        });
+      }
     }
   }
 
@@ -1290,7 +1793,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Donor History
     const historyTable = document.getElementById('donorHistoryTableBody');
     if (historyTable) {
-      const userRequests = stateManager.getUserRequests().filter(r => r.type === 'community_pledge' || r.amount === 0);
+      const user = stateManager.getCurrentUser();
+      const allRequests = stateManager.getUserRequests();
+      const userRequests = allRequests.filter(r =>
+        r.type === 'community_pledge' ||
+        (user && (r.studentId === user.id || r.donorName === user.name)) ||
+        r.amount === 0
+      );
+
+      const donorCountEl = document.getElementById('donorTotalCount');
+      if (donorCountEl) donorCountEl.textContent = userRequests.length > 0 ? userRequests.length : 8;
+
       if (userRequests.length === 0) {
         historyTable.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">No pledges recorded yet. Choose a community drive above to support!</td></tr>';
       } else {
@@ -1321,13 +1834,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const partnerPostReqBtn = document.getElementById('partnerPostReqBtn');
     if (partnerPostReqBtn) partnerPostReqBtn.addEventListener('click', () => openModal('postRequirementModal'));
 
+    // Record Distribution button
+    const partnerAddDistBtn = document.getElementById('partnerAddDistBtn');
+    if (partnerAddDistBtn) {
+      partnerAddDistBtn.addEventListener('click', () => {
+        openRecordDistributionModal();
+      });
+    }
+
     const user = stateManager.getCurrentUser();
     const reqs = stateManager.getCommunityRequirements();
-    const myReqs = reqs.filter(r => r.organizationName === user?.organizationName || r.organizationType?.includes('NSS'));
+    const myReqs = reqs.filter(r =>
+      (user && (r.organizationId === user.id || r.organizationName === user.organizationName || r.organizationName === user.name)) ||
+      (!user && r.organizationType?.includes('NSS'))
+    );
 
     const partnerGrid = document.getElementById('partnerMyRequirementsGrid');
     if (partnerGrid) {
-      partnerGrid.innerHTML = (myReqs.length > 0 ? myReqs : reqs.slice(0, 2)).map(r => createCommunityReqCardHTML(r)).join('');
+      const displayReqs = myReqs.length > 0 ? myReqs : reqs;
+      partnerGrid.innerHTML = displayReqs.map(r => createCommunityReqCardHTML(r)).join('');
       attachCommunityCardEvents(partnerGrid);
     }
 
@@ -1335,21 +1860,32 @@ document.addEventListener('DOMContentLoaded', () => {
     const distTable = document.getElementById('partnerDistributionsTableBody');
     if (distTable) {
       const dists = stateManager.getDistributions();
-      distTable.innerHTML = dists.map(d => `
-        <tr>
-          <td><strong>${escapeHTML(d.requirementTitle)}</strong></td>
-          <td>${escapeHTML(d.beneficiaries)}</td>
-          <td>${d.quantity} units</td>
-          <td>${d.date}</td>
-          <td>${escapeHTML(d.distributedBy)}</td>
-          <td><span class="badge badge-verified">${escapeHTML(d.status)}</span></td>
-        </tr>
-      `).join('');
+      if (dists.length === 0) {
+        distTable.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">No beneficiary distributions recorded yet. Click "+ Record Distribution" above.</td></tr>';
+      } else {
+        distTable.innerHTML = dists.map(d => `
+          <tr>
+            <td><strong>${escapeHTML(d.requirementTitle)}</strong></td>
+            <td>${escapeHTML(d.beneficiaries)}</td>
+            <td>${d.quantity} units</td>
+            <td>${d.date}</td>
+            <td>${escapeHTML(d.distributedBy)}</td>
+            <td><span class="badge badge-verified">${escapeHTML(d.status)}</span></td>
+          </tr>
+        `).join('');
+      }
     }
   }
 
   // 5. Admin Console Dashboard
   function renderAdminDashboard(actionWrap) {
+    const user = stateManager.getCurrentUser();
+    // Security check: non-admin users cannot access admin dashboard
+    if (!user || user.role !== 'admin') {
+      showToast('Access Denied: System Administrator privileges required.', 'error');
+      return switchView(user ? 'dashboard' : 'home');
+    }
+
     const panel = document.getElementById('dashContentAdmin');
     if (!panel) return;
     panel.style.display = 'block';
@@ -1359,27 +1895,56 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
     const dashAdminExportBtn = document.getElementById('dashAdminExportBtn');
     if (dashAdminExportBtn) {
-      dashAdminExportBtn.addEventListener('click', () => {
-        showToast('CEP Project Impact Report generated successfully.', 'success');
+      dashAdminExportBtn.addEventListener('click', async () => {
+        const report = await stateManager.fetchAdminReport();
+        openAdminReportModal(report);
       });
     }
 
     const resources = stateManager.getResources();
-    document.getElementById('adminTotalResources').textContent = resources.length;
+    const countEl = document.getElementById('adminTotalResources');
+    if (countEl) countEl.textContent = resources.length;
 
-    // Moderation table
+    // Moderation queue table
     const modTable = document.getElementById('adminModerationTableBody');
     if (modTable) {
-      modTable.innerHTML = resources.slice(0, 6).map(r => `
-        <tr>
-          <td><strong>${escapeHTML(r.title)}</strong></td>
-          <td>${formatEduLevel(r.category)}</td>
-          <td>${formatEduLevel(r.educationLevel)}</td>
-          <td><span class="badge ${r.type === 'free' ? 'badge-free' : 'badge-price'}">${r.type === 'free' ? 'Free' : `₹${r.price}`}</span></td>
-          <td>${escapeHTML(r.providerName)}</td>
-          <td><span class="badge badge-verified">Verified</span></td>
-        </tr>
-      `).join('');
+      modTable.innerHTML = resources.slice(0, 6).map(r => {
+        const isVerified = r.moderationStatus === 'verified' || !r.moderationStatus;
+        return `
+          <tr>
+            <td><strong>${escapeHTML(r.title)}</strong></td>
+            <td>${formatEduLevel(r.category)}</td>
+            <td>${formatEduLevel(r.educationLevel)}</td>
+            <td><span class="badge ${r.type === 'free' ? 'badge-free' : 'badge-price'}">${r.type === 'free' ? 'Free' : `₹${r.price}`}</span></td>
+            <td>${escapeHTML(r.providerName)}</td>
+            <td>
+              <span class="badge ${isVerified ? 'badge-verified' : 'badge-price'}" id="mod-badge-${r.id}">${isVerified ? 'Approved' : 'Flagged'}</span>
+            </td>
+            <td>
+              <button class="btn btn-ghost btn-sm btn-toggle-mod" data-res-id="${r.id}" data-current="${isVerified ? 'verified' : 'flagged'}" style="padding: 2px 6px; font-size: 0.75rem;">
+                ${isVerified ? 'Flag' : 'Approve'}
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      modTable.querySelectorAll('.btn-toggle-mod').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const resId = btn.getAttribute('data-res-id');
+          const current = btn.getAttribute('data-current');
+          const next = current === 'verified' ? 'flagged' : 'verified';
+          await stateManager.updateModerationStatus(resId, next);
+          btn.setAttribute('data-current', next);
+          btn.textContent = next === 'verified' ? 'Flag' : 'Approve';
+          const badgeEl = document.getElementById(`mod-badge-${resId}`);
+          if (badgeEl) {
+            badgeEl.className = `badge ${next === 'verified' ? 'badge-verified' : 'badge-price'}`;
+            badgeEl.textContent = next === 'verified' ? 'Approved' : 'Flagged';
+          }
+          showToast(`Resource status set to '${next}'.`, 'info');
+        });
+      });
     }
 
     // Partners verification
@@ -1395,6 +1960,44 @@ document.addEventListener('DOMContentLoaded', () => {
           <td><span class="badge badge-verified">Approved Partner</span></td>
         </tr>
       `).join('');
+    }
+
+    // User & Role Management Table
+    const usersTable = document.getElementById('adminUsersTableBody');
+    if (usersTable) {
+      const allUsers = stateManager.getRegisteredUsers();
+
+      usersTable.innerHTML = allUsers.map(u => `
+        <tr>
+          <td><strong>${escapeHTML(u.name)}</strong></td>
+          <td>${escapeHTML(u.email || u.mobile || 'N/A')}</td>
+          <td><span class="badge badge-partner" id="role-badge-${u.id}">${escapeHTML(u.roleLabel || u.role)}</span></td>
+          <td>${escapeHTML(u.institution || u.location || 'Mumbai')}</td>
+          <td><span class="badge badge-verified">Active</span></td>
+          <td>
+            <select class="form-select form-select-sm admin-role-select" data-user-id="${u.id}" style="padding: 4px 8px; font-size: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);">
+              <option value="student" ${u.role === 'student' ? 'selected' : ''}>Student</option>
+              <option value="provider" ${u.role === 'provider' ? 'selected' : ''}>Resource Provider</option>
+              <option value="community" ${u.role === 'community' ? 'selected' : ''}>Community Partner</option>
+              <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>System Administrator</option>
+            </select>
+          </td>
+        </tr>
+      `).join('');
+
+      // Wire up role change dropdown
+      usersTable.querySelectorAll('.admin-role-select').forEach(sel => {
+        sel.addEventListener('change', async (e) => {
+          const targetUserId = sel.getAttribute('data-user-id');
+          const newRole = e.target.value;
+          await stateManager.updateUserRole(targetUserId, newRole);
+
+          const badgeEl = document.getElementById(`role-badge-${targetUserId}`);
+          if (badgeEl) badgeEl.textContent = stateManager.getRoleLabel(newRole);
+
+          showToast(`User role updated to '${stateManager.getRoleLabel(newRole)}'.`, 'success');
+        });
+      });
     }
   }
 
@@ -1461,42 +2064,252 @@ document.addEventListener('DOMContentLoaded', () => {
     // Provider Add Listing Form Submit
     const providerForm = document.getElementById('providerListingForm');
     if (providerForm) {
-      const listingType = document.getElementById('listingType');
-      const listingPriceGroup = document.getElementById('listingPriceGroup');
-
-      listingType.addEventListener('change', (e) => {
-        if (e.target.value === 'free') {
-          listingPriceGroup.style.display = 'none';
-        } else {
-          listingPriceGroup.style.display = 'block';
-        }
+      providerPhotoCtrl = createPhotoUploadController({
+        dropzoneEl: document.getElementById('listingPhotoDropzone'),
+        fileInputEl: document.getElementById('listingPhotosInput'),
+        previewGridEl: document.getElementById('listingPhotoPreviewGrid'),
+        errorEl: document.getElementById('listingPhotoError'),
+        maxPhotos: 6
       });
+
+      const listingType = document.getElementById('listingType');
+      const listingCondition = document.getElementById('listingCondition');
+      const listingOriginalPrice = document.getElementById('listingOriginalPrice');
+      const listingPurchaseDate = document.getElementById('listingPurchaseDate');
+      const listingPriceInput = document.getElementById('listingPrice');
+      const listingSaleSection = document.getElementById('listingSalePricingSection');
+      const priceLimitCallout = document.getElementById('priceLimitCallout');
+      const priceLimitBadge = document.getElementById('priceLimitBadge');
+      const priceLimitMaxText = document.getElementById('priceLimitMaxText');
+      const priceLimitDetailsText = document.getElementById('priceLimitDetailsText');
+      const listingPriceError = document.getElementById('listingPriceError');
+
+      if (listingPurchaseDate) {
+        listingPurchaseDate.max = new Date().toISOString().split('T')[0];
+      }
+
+      function updatePriceLimitLiveUI() {
+        const isFree = listingType ? listingType.value === 'free' : false;
+        if (isFree) {
+          if (listingSaleSection) listingSaleSection.style.display = 'none';
+          if (priceLimitCallout) priceLimitCallout.style.display = 'none';
+          if (listingPriceInput) {
+            listingPriceInput.value = '0';
+            listingPriceInput.removeAttribute('required');
+          }
+          if (listingPriceError) listingPriceError.style.display = 'none';
+          return;
+        }
+
+        if (listingSaleSection) listingSaleSection.style.display = 'block';
+        if (listingPriceInput) listingPriceInput.setAttribute('required', 'required');
+
+        const condition = listingCondition ? listingCondition.value : 'Good';
+        const origPrice = Number(listingOriginalPrice ? listingOriginalPrice.value : 0);
+        const purchaseDate = listingPurchaseDate ? listingPurchaseDate.value : '';
+
+        // Check Poor / Damaged condition first
+        if (condition.includes('Poor') || condition.includes('Damaged')) {
+          if (priceLimitCallout) {
+            priceLimitCallout.style.display = 'block';
+            priceLimitCallout.className = 'price-limit-callout blocked';
+            if (priceLimitBadge) priceLimitBadge.textContent = 'Listing Blocked';
+            if (priceLimitMaxText) priceLimitMaxText.textContent = 'Cannot Be Sold';
+            if (priceLimitDetailsText) {
+              priceLimitDetailsText.innerHTML = '<strong>Review Required:</strong> Poor or damaged items cannot be sold until reviewed by the platform moderation team.';
+            }
+          }
+          if (listingPriceError) {
+            listingPriceError.style.display = 'block';
+            listingPriceError.textContent = 'Poor/Damaged items cannot be sold until reviewed.';
+          }
+          return;
+        }
+
+        if (!origPrice || !purchaseDate) {
+          if (priceLimitCallout) {
+            priceLimitCallout.style.display = 'block';
+            priceLimitCallout.className = 'price-limit-callout';
+            if (priceLimitBadge) priceLimitBadge.textContent = 'Automatic Price Limit';
+            if (priceLimitMaxText) priceLimitMaxText.textContent = 'Enter original price & date';
+            if (priceLimitDetailsText) {
+              priceLimitDetailsText.textContent = 'Enter your item\'s original purchase price and purchase date to determine the maximum permissible price for students.';
+            }
+          }
+          if (listingPriceError) listingPriceError.style.display = 'none';
+          return;
+        }
+
+        const calc = PriceCalculator.calculateMaxPrice({
+          originalPrice: origPrice,
+          purchaseDate,
+          condition,
+          type: 'buy'
+        });
+
+        if (!calc.allowed) {
+          if (priceLimitCallout) {
+            priceLimitCallout.style.display = 'block';
+            priceLimitCallout.className = 'price-limit-callout blocked';
+            if (priceLimitBadge) priceLimitBadge.textContent = 'Invalid Input';
+            if (priceLimitMaxText) priceLimitMaxText.textContent = 'Review Details';
+            if (priceLimitDetailsText) priceLimitDetailsText.textContent = calc.error || 'Please provide a valid purchase date and price.';
+          }
+          if (listingPriceError) {
+            listingPriceError.style.display = 'block';
+            listingPriceError.textContent = calc.error;
+          }
+          return;
+        }
+
+        if (priceLimitCallout) {
+          priceLimitCallout.style.display = 'block';
+          priceLimitCallout.className = 'price-limit-callout valid';
+          if (priceLimitBadge) priceLimitBadge.textContent = 'Fair Price Limit';
+          if (priceLimitMaxText) priceLimitMaxText.textContent = `Max Allowed: ₹${calc.maxPrice}`;
+          if (priceLimitDetailsText) {
+            priceLimitDetailsText.innerHTML = `
+              <div><strong>Formula:</strong> Original Price (₹${origPrice}) × Age Rate (${calc.ageLabel}) × Condition Rate (${calc.conditionLabel})</div>
+              <div class="price-limit-breakdown">
+                <span>Age: ${calc.monthsAge} months</span>
+                <span>Age Rate: ${Math.round(calc.ageRate * 100)}%</span>
+                <span>Condition Rate: ${Math.round(calc.conditionRate * 100)}%</span>
+                <span>Max Price: <strong>₹${calc.maxPrice}</strong></span>
+              </div>
+            `;
+          }
+        }
+
+        // Live check against entered selling price
+        const currentPrice = Number(listingPriceInput?.value || 0);
+        if (currentPrice > 0 && currentPrice > calc.maxPrice) {
+          if (listingPriceError) {
+            listingPriceError.style.display = 'block';
+            listingPriceError.textContent = `Your asking price (₹${currentPrice}) exceeds the maximum permissible limit of ₹${calc.maxPrice}.`;
+          }
+        } else {
+          if (listingPriceError) listingPriceError.style.display = 'none';
+        }
+      }
+
+      if (listingType) listingType.addEventListener('change', updatePriceLimitLiveUI);
+      if (listingCondition) listingCondition.addEventListener('change', updatePriceLimitLiveUI);
+      if (listingOriginalPrice) {
+        listingOriginalPrice.addEventListener('input', updatePriceLimitLiveUI);
+        listingOriginalPrice.addEventListener('change', updatePriceLimitLiveUI);
+      }
+      if (listingPurchaseDate) {
+        listingPurchaseDate.addEventListener('input', updatePriceLimitLiveUI);
+        listingPurchaseDate.addEventListener('change', updatePriceLimitLiveUI);
+      }
+      if (listingPriceInput) {
+        listingPriceInput.addEventListener('input', updatePriceLimitLiveUI);
+        listingPriceInput.addEventListener('change', updatePriceLimitLiveUI);
+      }
 
       providerForm.addEventListener('submit', (e) => {
         e.preventDefault();
+
+        // 1. Mandatory Real Photo Validation
+        const photoCheck = providerPhotoCtrl ? providerPhotoCtrl.validate() : { valid: true };
+        if (!photoCheck.valid) {
+          if (providerPhotoCtrl) providerPhotoCtrl.showError(photoCheck.error);
+          const dropzone = document.getElementById('listingPhotoDropzone');
+          if (dropzone) dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          showToast(photoCheck.error, 'error');
+          return;
+        }
+
         const title = document.getElementById('listingTitle').value.trim();
         const category = document.getElementById('listingCategory').value;
         const educationLevel = document.getElementById('listingEducationLevel').value;
         const type = document.getElementById('listingType').value;
-        const price = type === 'free' ? 0 : Number(document.getElementById('listingPrice').value || 0);
         const condition = document.getElementById('listingCondition').value;
+        const isFree = type === 'free';
+
+        let price = 0;
+        let originalPrice = 0;
+        let purchaseDate = null;
+        let maxPrice = 0;
+
+        if (isFree) {
+          price = 0;
+          maxPrice = 0;
+        } else {
+          if (condition.includes('Poor') || condition.includes('Damaged')) {
+            showToast('Poor/Damaged items cannot be sold until reviewed.', 'error');
+            return;
+          }
+
+          originalPrice = Number(document.getElementById('listingOriginalPrice')?.value || 0);
+          if (!originalPrice || originalPrice <= 0) {
+            showToast('Please enter the original purchase price for items listed for sale.', 'error');
+            return;
+          }
+
+          purchaseDate = document.getElementById('listingPurchaseDate')?.value;
+          if (!purchaseDate) {
+            showToast('Please select the purchase date to determine the price limit.', 'error');
+            return;
+          }
+
+          const rawPrice = Number(document.getElementById('listingPrice')?.value || 0);
+          if (!rawPrice || rawPrice <= 0) {
+            showToast('Please enter an asking price greater than ₹0 for items listed for sale.', 'error');
+            return;
+          }
+
+          const calc = PriceCalculator.calculateMaxPrice({
+            originalPrice,
+            purchaseDate,
+            condition,
+            type: 'buy'
+          });
+
+          if (!calc.allowed) {
+            showToast(calc.error || 'Item cannot be sold with current parameters.', 'error');
+            return;
+          }
+
+          if (rawPrice > calc.maxPrice) {
+            showToast(`Selling price (₹${rawPrice}) cannot exceed the maximum permitted price of ₹${calc.maxPrice}.`, 'error');
+            return;
+          }
+
+          price = rawPrice;
+          maxPrice = calc.maxPrice;
+        }
+
         const location = document.getElementById('listingLocation').value.trim();
         const description = document.getElementById('listingDescription').value.trim();
+        const uploadedPhotos = providerPhotoCtrl ? providerPhotoCtrl.getPhotos() : [];
 
-        stateManager.addResource({
-          title,
-          category,
-          educationLevel,
-          type,
-          price,
-          condition,
-          location,
-          description,
-          image: 'https://images.unsplash.com/photo-1532012164546-f432f2e3777a?auto=format&fit=crop&w=600&q=80'
-        });
+        try {
+          stateManager.addResource({
+            title,
+            category,
+            educationLevel,
+            type: isFree ? 'free' : 'buy',
+            price,
+            originalPrice,
+            purchaseDate,
+            maxPrice,
+            condition,
+            location,
+            description,
+            image: uploadedPhotos[0],
+            images: uploadedPhotos
+          });
 
-        closeModal('providerAddListingModal');
-        providerForm.reset();
+          if (providerPhotoCtrl) providerPhotoCtrl.clear();
+          providerForm.reset();
+          if (priceLimitCallout) priceLimitCallout.style.display = 'none';
+          if (listingPriceError) listingPriceError.style.display = 'none';
+          closeModal('providerAddListingModal');
+          showToast(isFree ? 'Resource listed successfully as a free donation (₹0)!' : `Resource listed successfully for sale at ₹${price} (Max limit: ₹${maxPrice})!`, 'success');
+        } catch (err) {
+          showToast(err.message || 'Failed to list resource.', 'error');
+        }
       });
     }
 
@@ -1531,6 +2344,146 @@ document.addEventListener('DOMContentLoaded', () => {
         closeModal('studentProfileModal');
       });
     }
+
+    // Community Partner Record Distribution Form Submit
+    const distForm = document.getElementById('recordDistributionForm');
+    if (distForm) {
+      distForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const reqSelect = document.getElementById('distRequirementSelect');
+        const reqId = reqSelect ? reqSelect.value : '';
+        const beneficiaries = document.getElementById('distBeneficiaries')?.value.trim();
+        const quantity = Number(document.getElementById('distQuantity')?.value) || 1;
+        const distributedBy = document.getElementById('distDistributedBy')?.value.trim();
+
+        stateManager.recordDistribution(reqId, quantity, beneficiaries, distributedBy);
+        closeModal('recordDistributionModal');
+        distForm.reset();
+        showToast(`Educational distribution of ${quantity} units recorded successfully!`, 'success');
+      });
+    }
+
+    // Community Partner Contact Inquiry Form Submit
+    const contactForm = document.getElementById('contactPartnerForm');
+    if (contactForm) {
+      contactForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const toOrganization = document.getElementById('contactPartnerOrgName')?.value || 'Community Partner';
+        const name = document.getElementById('contactSenderName')?.value.trim();
+        const email = document.getElementById('contactSenderEmail')?.value.trim();
+        const phone = document.getElementById('contactSenderPhone')?.value.trim();
+        const subject = document.getElementById('contactSubject')?.value.trim();
+        const message = document.getElementById('contactMessage')?.value.trim();
+
+        await stateManager.submitContactInquiry({
+          toOrganization,
+          name,
+          email,
+          phone,
+          subject,
+          message
+        });
+
+        closeModal('contactPartnerModal');
+        contactForm.reset();
+        showToast(`Your message has been sent to ${toOrganization}!`, 'success');
+      });
+    }
+  }
+
+  function openAdminReportModal(report) {
+    if (!report) return;
+    const modalTitle = document.getElementById('adminReportTitle');
+    const modalBody = document.getElementById('adminReportModalBody');
+    const genAt = document.getElementById('adminReportGeneratedAt');
+
+    if (modalTitle) modalTitle.textContent = report.title || 'ShikshaShare Academic CEP Impact Assessment Report';
+    if (genAt) genAt.textContent = `Generated: ${new Date(report.generatedAt || Date.now()).toLocaleString()}`;
+
+    const m = report.metrics || {};
+    const drives = report.communityDrivesStatus || {};
+
+    if (modalBody) {
+      modalBody.innerHTML = `
+        <div style="margin-bottom: 20px;">
+          <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 14px;">Academic Year: <strong>${report.academicYear || '2026-2027'}</strong> • Institutional CEP Audit</div>
+          <div class="dash-stats-row" style="margin-bottom: 20px;">
+            <div class="stat-metric-card">
+              <div class="stat-number">${m.totalListedMaterials || 0}</div>
+              <div class="stat-label">Listed Resources (${m.freeMaterialsPercentage || 0}% Free)</div>
+            </div>
+            <div class="stat-metric-card">
+              <div class="stat-number">${m.totalBeneficiariesReached || 0}</div>
+              <div class="stat-label">Beneficiaries Reached</div>
+            </div>
+            <div class="stat-metric-card">
+              <div class="stat-number">₹${(m.estimatedStudentSavingsRupees || 0).toLocaleString()}</div>
+              <div class="stat-label">Student Savings Generated</div>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px;">
+            <div style="background: var(--bg-surface-subtle); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color);">
+              <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 8px;">🌱 Environmental Sustainability</h4>
+              <p style="font-size: 0.85rem; color: var(--text-body); margin-bottom: 4px;"><strong>Paper Waste Prevented:</strong> ~${m.paperWastePreventedKg || 0} kg</p>
+              <p style="font-size: 0.85rem; color: var(--text-body);"><strong>Equivalent Trees Saved:</strong> ~${m.treesEquivalentSaved || 0} mature trees</p>
+            </div>
+            <div style="background: var(--bg-surface-subtle); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color);">
+              <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 8px;">🤝 Community Drives Status</h4>
+              <p style="font-size: 0.85rem; color: var(--text-body); margin-bottom: 4px;"><strong>Total Active Drives:</strong> ${drives.total || 0}</p>
+              <p style="font-size: 0.85rem; color: var(--text-body);"><strong>Fulfilled / In-Progress:</strong> ${drives.fulfilled || 0} completed, ${drives.partiallyFulfilled || 0} active</p>
+            </div>
+          </div>
+
+          <div style="background: #ffffff; padding: 16px; border: 1px solid var(--border-color); border-radius: 8px;">
+            <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 8px;">Institutional Verification Statement</h4>
+            <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.6;">
+              This assessment report reflects real-time educational material reallocations and verified grassroot donations across participating colleges, NSS student wings, and registered community organizations for the Community Engagement Project (CEP).
+            </p>
+          </div>
+        </div>
+      `;
+    }
+
+    const printBtn = document.getElementById('adminPrintReportBtn');
+    if (printBtn) {
+      printBtn.onclick = () => window.print();
+    }
+
+    openModal('adminReportModal');
+  }
+
+  function openContactPartnerModal(partnerName) {
+    const title = document.getElementById('contactPartnerModalTitle');
+    const orgHidden = document.getElementById('contactPartnerOrgName');
+    const user = stateManager.getCurrentUser();
+
+    if (title) title.textContent = `Contact: ${partnerName}`;
+    if (orgHidden) orgHidden.value = partnerName;
+
+    const nameInput = document.getElementById('contactSenderName');
+    const emailInput = document.getElementById('contactSenderEmail');
+    const phoneInput = document.getElementById('contactSenderPhone');
+
+    if (nameInput && user?.name) nameInput.value = user.name;
+    if (emailInput && user?.email) emailInput.value = user.email;
+    if (phoneInput && user?.mobile) phoneInput.value = user.mobile;
+
+    openModal('contactPartnerModal');
+  }
+
+  function openRecordDistributionModal() {
+    const select = document.getElementById('distRequirementSelect');
+    if (select) {
+      const reqs = stateManager.getCommunityRequirements();
+      select.innerHTML = reqs.map(r => `<option value="${r.id}">${escapeHTML(r.title)} (${r.organizationName})</option>`).join('');
+    }
+    const distBy = document.getElementById('distDistributedBy');
+    const user = stateManager.getCurrentUser();
+    if (distBy && user) {
+      distBy.value = user.name || '';
+    }
+    openModal('recordDistributionModal');
   }
 
   function openPersonalizeModal() {
@@ -1557,6 +2510,9 @@ document.addEventListener('DOMContentLoaded', () => {
   function openModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
+      if (modalId === 'providerAddListingModal' && providerPhotoCtrl) {
+        providerPhotoCtrl.clear();
+      }
       modal.classList.add('active-modal');
       document.body.style.overflow = 'hidden';
     }
@@ -1574,6 +2530,217 @@ document.addEventListener('DOMContentLoaded', () => {
   // =========================================================================
   // 12. Helper & Toast Utilities
   // =========================================================================
+  /**
+   * Reusable Photo Upload Controller for resource forms
+   * Handles multi-photo selection, drag & drop, client-side validation, previews,
+   * removal, replacement, and strict requirement of real photos.
+   */
+  function createPhotoUploadController({
+    dropzoneEl,
+    fileInputEl,
+    previewGridEl,
+    errorEl,
+    maxPhotos = 6,
+    maxSizeBytes = 5 * 1024 * 1024
+  }) {
+    let photos = []; // Array of photo data URLs or persistent image URLs
+
+    function showError(msg) {
+      if (errorEl) {
+        errorEl.innerHTML = `
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0;">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span>${escapeHTML(msg)}</span>
+        `;
+        errorEl.style.display = 'flex';
+      }
+      if (dropzoneEl) dropzoneEl.classList.add('has-error');
+    }
+
+    function clearError() {
+      if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.style.display = 'none';
+      }
+      if (dropzoneEl) dropzoneEl.classList.remove('has-error');
+    }
+
+    function renderPreviews() {
+      if (!previewGridEl) return;
+      if (photos.length === 0) {
+        previewGridEl.innerHTML = '';
+        return;
+      }
+
+      previewGridEl.innerHTML = photos.map((photo, idx) => `
+        <div class="photo-preview-item" data-photo-idx="${idx}">
+          <img src="${photo}" alt="Resource Photo ${idx + 1}">
+          ${idx === 0
+            ? '<span class="photo-main-badge">Cover</span>'
+            : `<span class="photo-main-badge" style="background: rgba(17, 24, 39, 0.75);">Photo ${idx + 1}</span>`
+          }
+          <button type="button" class="photo-remove-btn" data-remove-idx="${idx}" title="Remove this photo" aria-label="Remove photo ${idx + 1}">&times;</button>
+        </div>
+      `).join('') + (photos.length < maxPhotos ? `
+        <div class="photo-add-more-card" role="button" tabindex="0" title="Add another photo of this resource">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>Add Photo</span>
+        </div>
+      ` : '');
+
+      // Bind individual photo remove buttons
+      previewGridEl.querySelectorAll('.photo-remove-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const rIdx = parseInt(btn.getAttribute('data-remove-idx'), 10);
+          if (!isNaN(rIdx) && rIdx >= 0 && rIdx < photos.length) {
+            photos.splice(rIdx, 1);
+            renderPreviews();
+            if (photos.length === 0) {
+              showError('At least one actual resource photo is required before submitting.');
+            } else {
+              clearError();
+            }
+          }
+        });
+      });
+
+      // Bind add more button inside preview grid
+      const addMoreCard = previewGridEl.querySelector('.photo-add-more-card');
+      if (addMoreCard) {
+        addMoreCard.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (fileInputEl) fileInputEl.click();
+        });
+      }
+    }
+
+    function addFiles(fileList) {
+      if (!fileList || fileList.length === 0) return;
+      clearError();
+
+      const files = Array.from(fileList);
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif', 'image/jpg'];
+
+      for (const file of files) {
+        const type = (file.type || '').toLowerCase();
+        if (!allowedTypes.includes(type) && !type.startsWith('image/')) {
+          showError(`"${file.name}" is not a supported image. Please upload JPG, PNG, or WEBP photos.`);
+          return;
+        }
+        if (file.size > maxSizeBytes) {
+          showError(`"${file.name}" exceeds the 5MB limit. Please select smaller images.`);
+          return;
+        }
+      }
+
+      if (photos.length + files.length > maxPhotos) {
+        showError(`You can upload up to ${maxPhotos} photos per resource.`);
+        return;
+      }
+
+      let readRemaining = files.length;
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          photos.push(e.target.result);
+          readRemaining--;
+          if (readRemaining === 0) {
+            clearError();
+            renderPreviews();
+          }
+        };
+        reader.onerror = () => {
+          readRemaining--;
+          showError(`Could not read "${file.name}". Please choose another photo.`);
+        };
+        reader.readAsDataURL(file);
+      });
+
+      if (fileInputEl) fileInputEl.value = '';
+    }
+
+    // Attach dropzone listeners
+    if (dropzoneEl) {
+      dropzoneEl.addEventListener('click', () => {
+        if (fileInputEl) fileInputEl.click();
+      });
+
+      dropzoneEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          if (fileInputEl) fileInputEl.click();
+        }
+      });
+
+      dropzoneEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzoneEl.classList.add('dragover');
+      });
+
+      dropzoneEl.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzoneEl.classList.add('dragover');
+      });
+
+      dropzoneEl.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzoneEl.classList.remove('dragover');
+      });
+
+      dropzoneEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzoneEl.classList.remove('dragover');
+        if (e.dataTransfer && e.dataTransfer.files) {
+          addFiles(e.dataTransfer.files);
+        }
+      });
+    }
+
+    if (fileInputEl) {
+      fileInputEl.addEventListener('change', (e) => {
+        if (e.target && e.target.files) {
+          addFiles(e.target.files);
+        }
+      });
+    }
+
+    return {
+      getPhotos: () => [...photos],
+      setPhotos: (newPhotos) => {
+        photos = Array.isArray(newPhotos) ? [...newPhotos] : [];
+        clearError();
+        renderPreviews();
+      },
+      clear: () => {
+        photos = [];
+        if (fileInputEl) fileInputEl.value = '';
+        clearError();
+        renderPreviews();
+      },
+      validate: () => {
+        if (photos.length === 0) {
+          return {
+            valid: false,
+            error: 'At least one actual resource photo is required before submitting.'
+          };
+        }
+        return { valid: true };
+      },
+      showError,
+      clearError
+    };
+  }
   function showToast(message, type = 'success') {
     const container = document.getElementById('toastContainer');
     if (!container) return;
@@ -1620,4 +2787,75 @@ document.addEventListener('DOMContentLoaded', () => {
       default: return lvl || 'Academic';
     }
   }
+
+  // =========================================================================
+  // 13. Application Initialization & Startup
+  // =========================================================================
+  initPopulateDropdowns();
+  initNavigation();
+  initAuth();
+  initHeaderNotifications();
+  initFilterControls();
+  initModals();
+  initDonationForm();
+
+  // Initial UI renders
+  renderAuthUI();
+  renderHome();
+  renderResources();
+  renderCommunity();
+  renderDashboard();
+
+  // Global event listeners for state synchronization
+  window.addEventListener('shikshashare:authChanged', () => {
+    renderAuthUI();
+    renderDashboard();
+    renderHome();
+    renderResources();
+  });
+
+  window.addEventListener('shikshashare:resourceAdded', () => {
+    renderHome();
+    renderResources();
+    renderDashboard();
+    showToast('Resource listed successfully on ShikshaShare!', 'success');
+  });
+
+  window.addEventListener('shikshashare:requirementAdded', () => {
+    renderHome();
+    renderCommunity();
+    renderDashboard();
+    showToast('Community requirement published successfully!', 'success');
+  });
+
+  window.addEventListener('shikshashare:requirementPledged', (e) => {
+    renderHome();
+    renderCommunity();
+    renderDashboard();
+    const qty = e.detail?.pledge?.quantityPledged || e.detail?.request?.quantityPledged || 1;
+    const org = e.detail?.requirement?.organizationName || 'Community Partner';
+    showToast(`Thank you! Pledged ${qty} item(s) to ${org}.`, 'success');
+  });
+
+  window.addEventListener('shikshashare:distributionRecorded', () => {
+    renderCommunity();
+    renderDashboard();
+  });
+
+  window.addEventListener('shikshashare:requestAdded', () => {
+    renderDashboard();
+    showToast('Resource request sent to provider!', 'success');
+  });
+
+  window.addEventListener('shikshashare:profileUpdated', () => {
+    renderDashboard();
+    renderResources();
+    showToast('Curriculum profile preferences updated!', 'success');
+  });
+
+  window.addEventListener('shikshashare:savedChanged', () => {
+    renderResources();
+    renderDashboard();
+  });
 });
+
